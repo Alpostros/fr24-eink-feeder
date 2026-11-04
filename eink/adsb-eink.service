@@ -1,0 +1,17 @@
+[Unit]
+Description=ADS-B stats on the Waveshare 2.13in e-ink
+After=readsb.service fr24feed.service
+
+[Service]
+User=adsb-eink
+Group=adsb-eink
+SupplementaryGroups=spi gpio
+StateDirectory=adsb-eink
+WorkingDirectory=/var/lib/adsb-eink
+ExecStart=/usr/bin/python3 /opt/adsb-eink/adsb-eink.py
+Restart=on-failure
+RestartSec=30
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target
