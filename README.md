@@ -4,6 +4,7 @@ A Raspberry Pi Zero 2 W ADS-B receiver that feeds **Flightradar24** and shows li
 e-ink display**, built into a 3D-printed case. One script installs everything on plain **Raspberry Pi OS Lite
 (64-bit)**. You don't need FR24's Pi24 image.
 
+![3D Printed Case](docs/3d-printed-case.jpg)
 ![What the e-ink screen shows](docs/screen-preview.png)
 
 *The screen, rendered from sample data: aircraft tracked now, message rate, unique aircraft today, today's
