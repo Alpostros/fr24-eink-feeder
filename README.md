@@ -145,6 +145,8 @@ How it behaves:
 - **Refresh:** a quick partial refresh every 60 s on the minute, and a full refresh every 30 minutes to clear
   ghosting. The panel goes into deep sleep when the service stops, following Waveshare's guidance for panel
   lifetime.
+- **Night sleep:** from 00:00 to 08:00 local time the screen shows *sleeping* with one full refresh, then the panel
+  stays in deep sleep until 08:00, when it clears and resumes. The feeder and the daily counters keep running.
 - **Daily counters** live in `/var/lib/adsb-eink/today.json`. They're saved every 10 minutes and reset at local
   midnight.
 - **Data sources**, all local:
@@ -158,10 +160,12 @@ How it behaves:
   ExecStart=
   ExecStart=/usr/bin/python3 /opt/adsb-eink/adsb-eink.py --flip
   ```
+- **Sleep hours:** add `--sleep 23:00-07:00` (or `--sleep off`) to `ExecStart` the same way. Windows that cross
+  midnight work. The default is `SLEEP` at the top of `eink/adsb-eink.py`.
 - **Timing:** `INTERVAL`, `FULL_EVERY` and `SAVE_EVERY` at the top of `eink/adsb-eink.py`. Run `install.sh` again
   to deploy the change.
 - **Preview without hardware:** `python3 eink/adsb-eink.py --png out.png --readsb-dir <folder with
-  aircraft/stats/receiver.json>`. This never touches the panel. Set `ADSB_EINK_FONT_DIR` if DejaVu fonts aren't in
+  aircraft/stats/receiver.json>`. Add `--png-sleep` to render the night screen. This never touches the panel. Set `ADSB_EINK_FONT_DIR` if DejaVu fonts aren't in
   `/usr/share/fonts/truetype/dejavu`.
 
 ## Troubleshooting

@@ -15,6 +15,7 @@ W, H = 250, 122
 INTERVAL = 60
 FULL_EVERY = 30
 SAVE_EVERY = 10
+SLEEP = '00:00-08:00'
 MONITOR = 'http://127.0.0.1:8754/monitor.json'
 FONT_DIR = os.environ.get('ADSB_EINK_FONT_DIR', '/usr/share/fonts/truetype/dejavu')
 COMPASS = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW']
@@ -159,6 +160,43 @@ def render(s, flip=False):
     return img.rotate(180) if flip else img
 
 
+def render_sleep(s, window, flip=False):
+    img = Image.new('1', (W, H), 255)
+    d = ImageDraw.Draw(img)
+    small, bold, big = font('DejaVuSans.ttf', 11), font('DejaVuSans-Bold.ttf', 12), font('DejaVuSans-Bold.ttf', 28)
+
+    d.text((3, 2), f"FR24 {s['alias']}", font=bold, fill=0)
+    d.line((0, 18, W, 18), fill=0)
+    title = 'sleeping'
+    d.text(((W - d.textlength(title, font=big)) / 2, 34), title, font=big, fill=0)
+    for y, text in ((76, f"screen wakes at {window[1] // 60:02d}:{window[1] % 60:02d}"),
+                    (92, 'feeder keeps running')):
+        d.text(((W - d.textlength(text, font=small)) / 2, y), text, font=small, fill=0)
+
+    return img.rotate(180) if flip else img
+
+
+def parse_window(spec):
+    """'HH:MM-HH:MM' -> (start, end) in minutes after midnight, or None for 'off'."""
+    if spec.lower() in ('', 'off', 'none'):
+        return None
+    try:
+        start, end = (int(h) * 60 + int(m) for h, m in (t.split(':') for t in spec.split('-')))
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"expected HH:MM-HH:MM or 'off', got {spec!r}")
+    if not (0 <= start < 1440 and 0 <= end < 1440) or start == end:
+        raise argparse.ArgumentTypeError(f'bad sleep window {spec!r}')
+    return start, end
+
+
+def in_window(window, now):
+    if window is None:
+        return False
+    start, end = window
+    m = now.hour * 60 + now.minute
+    return start <= m < end if start < end else m >= start or m < end
+
+
 def sleep_to_next_tick():
     time.sleep(INTERVAL - time.time() % INTERVAL)
 
@@ -170,26 +208,52 @@ def run(args):
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
     epd = epd2in13_V4.EPD()
     today = Today(args.state)
-    frame = 0
-    epd.init()
-    epd.Clear(0xFF)
+    tick = 0
+    frame = 0          # frames since the screen last woke up
+    mode = None        # 'day' or 'night'
+    panel_on = False   # False while the panel is in deep sleep with SPI/GPIO released
+
+    def wake():
+        nonlocal panel_on
+        if not panel_on:
+            epd.init()
+            panel_on = True
+
     try:
         while True:
-            buf = epd.getbuffer(render(snapshot(args.readsb_dir, today), args.flip))
-            if frame % FULL_EVERY == 0:
-                if frame:
+            s = snapshot(args.readsb_dir, today)
+            if in_window(args.sleep, datetime.now()):
+                # Night: one full refresh to the sleep screen, then deep sleep. The image stays on the
+                # panel without power. Counters keep updating in the background.
+                if mode != 'night':
+                    wake()
+                    epd.display(epd.getbuffer(render_sleep(s, args.sleep, args.flip)))
                     epd.sleep()
-                    epd.init()
-                epd.displayPartBaseImage(buf)
+                    panel_on = False
+                    mode = 'night'
             else:
-                epd.displayPartial(buf)
-            if frame % SAVE_EVERY == 0:
+                if mode != 'day':
+                    wake()
+                    epd.Clear(0xFF)
+                    frame = 0
+                    mode = 'day'
+                buf = epd.getbuffer(render(s, args.flip))
+                if frame % FULL_EVERY == 0:
+                    if frame:
+                        epd.sleep()
+                        epd.init()
+                    epd.displayPartBaseImage(buf)
+                else:
+                    epd.displayPartial(buf)
+                frame += 1
+            if tick % SAVE_EVERY == 0:
                 today.save()
-            frame += 1
+            tick += 1
             sleep_to_next_tick()
     finally:
         today.save()
-        epd.sleep()
+        if panel_on:
+            epd.sleep()
 
 
 def main():
@@ -197,10 +261,17 @@ def main():
     p.add_argument('--readsb-dir', default='/run/readsb')
     p.add_argument('--state', default='/var/lib/adsb-eink/today.json')
     p.add_argument('--flip', action='store_true')
+    p.add_argument('--sleep', type=parse_window, default=parse_window(SLEEP), metavar='HH:MM-HH:MM',
+                   help=f"local time window when the screen sleeps (default {SLEEP}); 'off' disables it")
     p.add_argument('--png', help='render one frame to this file and exit, without touching the panel')
+    p.add_argument('--png-sleep', action='store_true', help='with --png: render the sleep screen instead')
     args = p.parse_args()
     if args.png:
-        render(snapshot(args.readsb_dir, Today(None)), args.flip).save(args.png)
+        s = snapshot(args.readsb_dir, Today(None))
+        if args.png_sleep:
+            render_sleep(s, args.sleep or parse_window(SLEEP), args.flip).save(args.png)
+        else:
+            render(s, args.flip).save(args.png)
         return
     run(args)
 
